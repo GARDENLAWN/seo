@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace GardenLawn\Seo\Controller\Google;
 
 use Magento\Framework\App\Action\HttpGetActionInterface;
-use Magento\Framework\App\ResponseInterface;
 use Magento\Framework\Controller\Result\RawFactory;
 use Magento\Framework\Controller\ResultInterface;
 use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory;
@@ -44,6 +43,11 @@ class Feed implements HttpGetActionInterface
 
     public function execute(): ResultInterface
     {
+        // Clear output buffer to prevent whitespace before XML declaration
+        if (ob_get_level()) {
+            ob_end_clean();
+        }
+
         try {
             $this->appState->setAreaCode(Area::AREA_FRONTEND);
         } catch (\Magento\Framework\Exception\LocalizedException $e) {
@@ -51,25 +55,39 @@ class Feed implements HttpGetActionInterface
         }
 
         $result = $this->resultRawFactory->create();
-        $result->setHeader('Content-Type', 'text/xml');
+        $result->setHeader('Content-Type', 'application/xml; charset=utf-8');
 
-        $xml = new \SimpleXMLElement('<rss xmlns:g="http://base.google.com/ns/1.0" version="2.0"/>');
-        $channel = $xml->addChild('channel');
-        $channel->addChild('title', 'Product Feed');
-        $channel->addChild('link', $this->storeManager->getStore()->getBaseUrl());
-        $channel->addChild('description', 'Product feed for Google Merchant Center');
+        $dom = new \DOMDocument('1.0', 'UTF-8');
+        $dom->formatOutput = true;
+
+        $rss = $dom->createElement('rss');
+        $rss->setAttribute('version', '2.0');
+        $rss->setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:g', 'http://base.google.com/ns/1.0');
+        $dom->appendChild($rss);
+
+        $channel = $dom->createElement('channel');
+        $rss->appendChild($channel);
+
+        $channel->appendChild($dom->createElement('title', 'Product Feed'));
+        $channel->appendChild($dom->createElement('link', $this->storeManager->getStore()->getBaseUrl()));
+        $channel->appendChild($dom->createElement('description', 'Product feed for Google Merchant Center'));
 
         $collection = $this->productCollectionFactory->create();
-        $collection->addAttributeToSelect('*'); // Select all attributes to ensure GTIN13 is available
+        $collection->addAttributeToSelect('*');
+        $collection->addWebsiteFilter();
         $collection->addAttributeToFilter('status', Status::STATUS_ENABLED);
         $collection->setVisibility(Visibility::VISIBILITY_BOTH);
+        $collection->addFieldToFilter('is_salable', 1);
+
+        $collection->addFinalPrice()->addAttributeToFilter('price', ['gt' => 0]);
 
         foreach ($collection as $product) {
-            $item = $channel->addChild('item');
-            $item->addChild('g:id', $product->getSku());
-            $item->addChild('g:title', $product->getName());
+            $item = $dom->createElement('item');
+            $channel->appendChild($item);
 
-            // Description logic: Meta -> Short -> Name
+            $this->addNode($dom, $item, 'g:id', $product->getSku());
+            $this->addNode($dom, $item, 'g:title', $product->getName());
+
             $description = $product->getData('meta_description');
             if (empty($description)) {
                 $description = $product->getData('short_description');
@@ -77,33 +95,40 @@ class Feed implements HttpGetActionInterface
             if (empty($description)) {
                 $description = $product->getName();
             }
-            $item->addChild('g:description', strip_tags((string)$description));
+            $this->addNode($dom, $item, 'g:description', strip_tags((string)$description));
 
-            $item->addChild('g:link', $product->getProductUrl());
-            $item->addChild('g:image_link', $this->imageHelper->init($product, 'product_base_image')->getUrl());
-            $item->addChild('g:availability', $product->isAvailable() ? 'in stock' : 'out of stock');
+            $this->addNode($dom, $item, 'g:link', $product->getProductUrl());
+            $this->addNode($dom, $item, 'g:image_link', $this->imageHelper->init($product, 'product_base_image')->getUrl());
+            $this->addNode($dom, $item, 'g:availability', 'in stock');
 
             $priceWithTax = $this->catalogData->getTaxPrice($product, $product->getFinalPrice(), true);
-            $item->addChild('g:price', number_format((float)$priceWithTax, 2, '.', '') . ' ' . $this->storeManager->getStore()->getCurrentCurrencyCode());
+            $this->addNode($dom, $item, 'g:price', number_format((float)$priceWithTax, 2, '.', '') . ' ' . $this->storeManager->getStore()->getCurrentCurrencyCode());
 
             if ($brand = $product->getAttributeText('manufacturer')) {
-                $item->addChild('g:brand', (string)$brand);
+                $this->addNode($dom, $item, 'g:brand', (string)$brand);
             } else {
-                $item->addChild('g:brand', 'Garden Lawn'); // Fallback brand name
+                $this->addNode($dom, $item, 'g:brand', 'Garden Lawn');
             }
 
-            // GTIN mapping
             if ($gtin = $product->getData('GTIN13')) {
-                $item->addChild('g:gtin', (string)$gtin);
+                $this->addNode($dom, $item, 'g:gtin', (string)$gtin);
             }
 
-            // MPN mapping (using SKU as fallback)
-            $item->addChild('g:mpn', $product->getSku());
-
-            $item->addChild('g:condition', 'new');
+            $this->addNode($dom, $item, 'g:mpn', $product->getSku());
+            $this->addNode($dom, $item, 'g:condition', 'new');
         }
 
-        $result->setContents($xml->asXML());
+        $result->setContents(rtrim($dom->saveXML()));
         return $result;
+    }
+
+    private function addNode(\DOMDocument $dom, \DOMElement $parent, string $name, string $value): void
+    {
+        // Clean string
+        $value = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $value);
+
+        $element = $dom->createElement($name);
+        $element->appendChild($dom->createTextNode($value));
+        $parent->appendChild($element);
     }
 }
