@@ -77,7 +77,6 @@ class Feed implements HttpGetActionInterface
         $collection->addWebsiteFilter();
         $collection->addAttributeToFilter('status', Status::STATUS_ENABLED);
         $collection->setVisibility(Visibility::VISIBILITY_BOTH);
-        $collection->addFieldToFilter('is_salable', 1);
 
         $collection->addFinalPrice()->addAttributeToFilter('price', ['gt' => 0]);
 
