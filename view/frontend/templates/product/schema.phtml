@@ -1,0 +1,15 @@
+<?php
+
+/** @var \Magento\Framework\View\Element\Template $block */
+/** @var \GardenLawn\Seo\ViewModel\ProductSchema $viewModel */
+
+$viewModel = $block->getViewModel();
+$jsonSchema = $viewModel->getJsonSchemaData();
+
+?>
+
+<?php if ($jsonSchema): ?>
+<script type="application/ld+json">
+<?= /* @noEscape */ $jsonSchema ?>
+</script>
+<?php endif; ?>
