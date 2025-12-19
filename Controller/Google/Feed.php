@@ -44,7 +44,11 @@ class Feed implements HttpGetActionInterface
 
     public function execute(): ResultInterface
     {
-        $this->appState->setAreaCode(Area::AREA_FRONTEND);
+        try {
+            $this->appState->setAreaCode(Area::AREA_FRONTEND);
+        } catch (\Magento\Framework\Exception\LocalizedException $e) {
+            // Area code already set
+        }
 
         $result = $this->resultRawFactory->create();
         $result->setHeader('Content-Type', 'text/xml');
@@ -56,7 +60,7 @@ class Feed implements HttpGetActionInterface
         $channel->addChild('description', 'Product feed for Google Merchant Center');
 
         $collection = $this->productCollectionFactory->create();
-        $collection->addAttributeToSelect('*');
+        $collection->addAttributeToSelect('*'); // Select all attributes to ensure GTIN13 is available
         $collection->addAttributeToFilter('status', Status::STATUS_ENABLED);
         $collection->setVisibility(Visibility::VISIBILITY_BOTH);
 
@@ -64,7 +68,17 @@ class Feed implements HttpGetActionInterface
             $item = $channel->addChild('item');
             $item->addChild('g:id', $product->getSku());
             $item->addChild('g:title', $product->getName());
-            $item->addChild('g:description', strip_tags((string)$product->getShortDescription() ?: $product->getName()));
+
+            // Description logic: Meta -> Short -> Name
+            $description = $product->getData('meta_description');
+            if (empty($description)) {
+                $description = $product->getData('short_description');
+            }
+            if (empty($description)) {
+                $description = $product->getName();
+            }
+            $item->addChild('g:description', strip_tags((string)$description));
+
             $item->addChild('g:link', $product->getProductUrl());
             $item->addChild('g:image_link', $this->imageHelper->init($product, 'product_base_image')->getUrl());
             $item->addChild('g:availability', $product->isAvailable() ? 'in stock' : 'out of stock');
@@ -75,11 +89,17 @@ class Feed implements HttpGetActionInterface
             if ($brand = $product->getAttributeText('manufacturer')) {
                 $item->addChild('g:brand', (string)$brand);
             } else {
-                $item->addChild('g:brand', 'Brak');
+                $item->addChild('g:brand', 'Garden Lawn'); // Fallback brand name
             }
 
-            $item->addChild('g:gtin', ''); // GTIN (EAN, UPC, JAN, ISBN)
-            $item->addChild('g:mpn', $product->getSku()); // MPN (Manufacturer Part Number)
+            // GTIN mapping
+            if ($gtin = $product->getData('GTIN13')) {
+                $item->addChild('g:gtin', (string)$gtin);
+            }
+
+            // MPN mapping (using SKU as fallback)
+            $item->addChild('g:mpn', $product->getSku());
+
             $item->addChild('g:condition', 'new');
         }
 
