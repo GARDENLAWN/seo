@@ -4,12 +4,16 @@ declare(strict_types=1);
 
 namespace GardenLawn\Seo\Controller\Google;
 
+use DOMDocument;
+use DOMElement;
 use Magento\Framework\App\Action\HttpGetActionInterface;
 use Magento\Framework\Controller\Result\RawFactory;
 use Magento\Framework\Controller\ResultInterface;
 use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory;
 use Magento\Catalog\Model\Product\Attribute\Source\Status;
 use Magento\Catalog\Model\Product\Visibility;
+use Magento\Framework\Exception\LocalizedException;
+use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\Store\Model\StoreManagerInterface;
 use Magento\Catalog\Helper\Image as ImageHelper;
 use Magento\Catalog\Helper\Data as CatalogData;
@@ -41,6 +45,10 @@ class Feed implements HttpGetActionInterface
         $this->appState = $appState;
     }
 
+    /**
+     * @throws NoSuchEntityException
+     * @throws \DOMException
+     */
     public function execute(): ResultInterface
     {
         // Clear output buffer to prevent whitespace before XML declaration
@@ -50,14 +58,14 @@ class Feed implements HttpGetActionInterface
 
         try {
             $this->appState->setAreaCode(Area::AREA_FRONTEND);
-        } catch (\Magento\Framework\Exception\LocalizedException $e) {
+        } catch (LocalizedException $e) {
             // Area code already set
         }
 
         $result = $this->resultRawFactory->create();
         $result->setHeader('Content-Type', 'application/xml; charset=utf-8');
 
-        $dom = new \DOMDocument('1.0', 'UTF-8');
+        $dom = new DOMDocument('1.0', 'UTF-8');
         $dom->formatOutput = true;
 
         $rss = $dom->createElement('rss');
@@ -121,7 +129,7 @@ class Feed implements HttpGetActionInterface
         return $result;
     }
 
-    private function addNode(\DOMDocument $dom, \DOMElement $parent, string $name, string $value): void
+    private function addNode(DOMDocument $dom, DOMElement $parent, string $name, string $value): void
     {
         // Clean string
         $value = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $value);
