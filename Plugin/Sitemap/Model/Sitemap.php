@@ -3,7 +3,7 @@
 namespace GardenLawn\Seo\Plugin\Sitemap\Model;
 
 use Magento\Framework\Filesystem;
-use Magento\Framework\Filesystem\DirectoryList;
+use Magento\Framework\App\Filesystem\DirectoryList;
 use Magento\Framework\Filesystem\DriverPool;
 
 class Sitemap
@@ -57,6 +57,10 @@ class Sitemap
     {
         // Use reflection to set the directory write instance to local file driver
         // This bypasses S3 or other remote storage drivers configured globally
+
+        // We need to use DirectoryList::PUB to get the 'pub' directory
+        // But we also need to make sure we are writing to the correct path relative to pub
+        // The original code uses DirectoryList::PUB as the root for _directory
 
         $directory = $this->filesystem->getDirectoryWrite(DirectoryList::PUB, DriverPool::FILE);
 
